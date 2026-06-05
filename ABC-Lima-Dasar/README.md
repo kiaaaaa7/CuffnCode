@@ -192,4 +192,7 @@ Original system design adapted from:
 
 ---
 
-*Pressure Control System — Embedded Systems Project | Telkom University*
+Note:
+The thresholds used in the current implementation are raw ADC values
+(PRESSURE_LOW = 500 and PRESSURE_HIGH = 2000).
+Actual kPa conversion depends on the selected pressure sensor calibration.
