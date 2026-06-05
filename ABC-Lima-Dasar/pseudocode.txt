@@ -1,0 +1,200 @@
+============================================================
+  PSEUDOCODE — PRESSURE CONTROL SYSTEM
+  Based on: CuffnCode System Design Diagram
+============================================================
+  Team:
+    - Zaskia Putri Maesa    (152024070)
+    - Valerina Danisa Putri (152024004)
+    - Davina Gizkatri       (152024110)
+
+  Description:
+    This pseudocode describes the logic of an automated
+    pressure control system. The MCU (ESP32) reads pressure
+    from 3 sensors and controls a pump + 2 solenoid valves
+    to keep the system within a safe pressure range.
+============================================================
+
+────────────────────────────────────────────────────────────
+  DEFINITIONS
+────────────────────────────────────────────────────────────
+
+  PRESSURE_LOW  = 20   // kPa — minimum safe pressure
+  PRESSURE_HIGH = 80   // kPa — maximum safe pressure
+
+  NOTE:
+  The values 20 kPa and 80 kPa represent conceptual pressure
+  thresholds used in this pseudocode for clarity.
+  In the actual ESP32 implementation (pressure_control.cpp),
+  these are mapped to raw ADC values:
+  PRESSURE_LOW  → Example ADC threshold: 500
+  PRESSURE_HIGH → Example ADC threshold: 2000
+  Conversion formula (MPXV7002DP sensor):
+    Vout  = ADC_raw / 4095.0 * 3.3    // Volts
+    P_kPa = (Vout / 3.3 - 0.5) / 0.057
+
+  ACTUATORS:
+    PUMP          → DC Micro Pump (fills the reservoir)
+    INPUT_VALVE   → Solenoid Valve (allows air IN)
+    OUTPUT_VALVE  → Solenoid Valve (releases air OUT)
+
+  SENSORS:
+    SENSOR_1 → Primary pressure sensor (used for control)
+    SENSOR_2 → Secondary sensor (monitoring / redundancy)
+    SENSOR_3 → Tertiary sensor  (monitoring / redundancy)
+
+────────────────────────────────────────────────────────────
+  INITIALIZATION
+────────────────────────────────────────────────────────────
+
+BEGIN SETUP
+  Initialize serial communication (baud rate 115200)
+  Set PUMP         as OUTPUT pin
+  Set INPUT_VALVE  as OUTPUT pin
+  Set OUTPUT_VALVE as OUTPUT pin
+
+  // Safety default: turn everything OFF at startup
+  Set PUMP         = OFF
+  Set INPUT_VALVE  = CLOSED
+  Set OUTPUT_VALVE = CLOSED
+
+  Print "System Initialized"
+END SETUP
+
+────────────────────────────────────────────────────────────
+  MAIN LOOP (repeats forever)
+────────────────────────────────────────────────────────────
+
+BEGIN LOOP
+
+  // ── STEP 1: Read all pressure sensors ──────────────────
+  READ pressure_1 FROM SENSOR_1    // Primary
+  READ pressure_2 FROM SENSOR_2    // Monitoring
+  READ pressure_3 FROM SENSOR_3    // Monitoring
+
+  SET pressure = pressure_1        // Use primary for control
+
+  // ── STEP 2: Evaluate pressure condition ────────────────
+
+  IF pressure < PRESSURE_LOW THEN
+    ┌─────────────────────────────────────────────┐
+    │  FILL MODE — Reservoir pressure is too low  │
+    │  Goal: pump air in until target reached     │
+    └─────────────────────────────────────────────┘
+    Set PUMP         = ON      // Start pumping air
+    Set INPUT_VALVE  = OPEN    // Allow air into reservoir
+    Set OUTPUT_VALVE = CLOSED  // Do not release air
+    Set STATUS       = "FILL MODE"
+
+  ELSE IF pressure > PRESSURE_HIGH THEN
+    ┌──────────────────────────────────────────────────┐
+    │  RELEASE MODE — Reservoir pressure is too high   │
+    │  Goal: vent excess air to atmosphere             │
+    └──────────────────────────────────────────────────┘
+    Set PUMP         = OFF     // Stop pumping
+    Set INPUT_VALVE  = CLOSED  // Stop air input
+    Set OUTPUT_VALVE = OPEN    // Release air to atmosphere
+    Set STATUS       = "RELEASE MODE"
+
+  ELSE
+    ┌─────────────────────────────────────────────────────┐
+    │  STANDBY MODE — Pressure is within safe range       │
+    │  (PRESSURE_LOW <= pressure <= PRESSURE_HIGH)        │
+    │  Goal: hold current state, no action needed         │
+    └─────────────────────────────────────────────────────┘
+    Set PUMP         = OFF     // No pumping needed
+    Set INPUT_VALVE  = CLOSED  // No air input
+    Set OUTPUT_VALVE = CLOSED  // No air release
+    Set STATUS       = "STANDBY MODE"
+
+  END IF
+
+  // ── STEP 3: Display readings ────────────────────────────
+  PRINT "Sensor 1: " + pressure_1
+  PRINT "Sensor 2: " + pressure_2
+  PRINT "Sensor 3: " + pressure_3
+  PRINT "Status: "   + STATUS
+
+  // ── STEP 4: Wait before next reading ───────────────────
+  WAIT 1000 milliseconds (1 second)
+
+END LOOP
+
+────────────────────────────────────────────────────────────
+  CONTROL LOGIC SUMMARY TABLE
+────────────────────────────────────────────────────────────
+
+  ┌─────────────────────┬──────┬─────────────┬──────────────┐
+  │ Condition           │ PUMP │ INPUT_VALVE │ OUTPUT_VALVE │
+  ├─────────────────────┼──────┼─────────────┼──────────────┤
+  │ pressure < 20 kPa   │  ON  │    OPEN     │   CLOSED     │
+  │ 20 <= pressure <= 80│  OFF │    CLOSED   │   CLOSED     │
+  │ pressure > 80 kPa   │  OFF │    CLOSED   │   OPEN       │
+  └─────────────────────┴──────┴─────────────┴──────────────┘
+
+  ADC equivalent (ESP32 12-bit, 3.3V ref):
+  ┌─────────────────────┬───────────────────┐
+  │ kPa (conceptual)    │ ADC raw value      │
+  ├─────────────────────┼───────────────────┤
+  │ 20 kPa (low limit)  │ ~500              │
+  │ 80 kPa (high limit) │ ~2000             │
+  └─────────────────────┴───────────────────┘
+
+────────────────────────────────────────────────────────────
+  SYSTEM FLOW DIAGRAM
+────────────────────────────────────────────────────────────
+
+          [START]
+             │
+             ▼
+     [Read Sensors 1,2,3]
+             │
+             ▼
+      [Evaluate Pressure]
+       /       |       \
+      /        |        \
+P < 20     20≤P≤80     P > 80
+   │            │           │
+   ▼            ▼           ▼
+FILL MODE  STANDBY MODE  RELEASE MODE
+Pump=ON    All=OFF       OutValve=ON
+InV=OPEN                 Pump=OFF
+OutV=CLOSE               InV=CLOSE
+   │            │           │
+   └─────────┬──┘           │
+             │◄─────────────┘
+             ▼
+      [Display Readings]
+             │
+             ▼
+        [Wait 1 sec]
+             │
+             ▼
+        [Loop Back]
+
+────────────────────────────────────────────────────────────
+  NOTES FOR IMPLEMENTATION
+────────────────────────────────────────────────────────────
+
+  1. ADC Conversion:
+     ESP32 ADC returns raw values 0–4095 (12-bit).
+     Convert to kPa using sensor datasheet calibration.
+     Example (MPXV7002DP):
+       Vout  = ADC_raw / 4095.0 * 3.3   // in Volts
+       P_kPa = (Vout / 3.3 - 0.5) / 0.057
+
+  2. Noise Reduction:
+     Average multiple ADC readings (e.g., 5 samples)
+     before making control decisions.
+
+  3. Safety:
+     Always initialize all actuators to OFF/CLOSED
+     before starting the main loop.
+     Add maximum pressure cutoff to prevent hardware damage.
+
+  4. Relay:
+     If pump/valve voltage > 3.3V, use a relay module
+     between ESP32 GPIO output and the actuator.
+
+============================================================
+  END OF PSEUDOCODE
+============================================================
